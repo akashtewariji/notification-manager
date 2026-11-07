@@ -29,7 +29,7 @@ Everything stays on your machine: no cloud, no accounts, no telemetry.
 ## Install
 
 ```bash
-git clone https://github.com/<OWNER>/notification-manager.git
+git clone https://github.com/akashtewariji/notification-manager.git
 cd notification-manager
 ./install.sh
 ```
