@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="nm-token" content="{{ token }}">
+  <title>Notification Manager</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #1e1f2e;
+      --bg-rgb:   30,31,46;        /* kept in sync with --bg by JS */
+      --s1:       #252637;
+      --s2:       #2c2d42;
+      --s3:       #3a3b54;
+      --border:   rgba(255,255,255,0.09);
+      --border2:  rgba(255,255,255,0.14);
+      --text:     #d8d9f0;
+      --text2:    #9a9bc0;
+      --text3:    #5c5d7a;
+      --accent:   #7c83e0;
+      --accent-b: rgba(124,131,224,0.13);
+      --green:    #4ade80;
+      --red:      #f87171;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      transition: background .3s;
+    }
+    body.has-wp { background: rgba(var(--bg-rgb), 0.72); }
+
+    /* Fixed wallpaper layer */
+    #wpBg {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -1;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      opacity: .3;
+      transition: opacity .3s;
+    }
+
+    /* ── Top bar ─────────────────────────────────────────────────────────── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      height: 44px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(var(--bg-rgb), 0.45);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+
+    /* Pulsing live dot */
+    .live {
+      position: relative;
+      width: 8px; height: 8px;
+      flex-shrink: 0;
+    }
+    .live::before, .live::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: var(--green);
+    }
+    .live::after { animation: ping 2s ease-in-out infinite; }
+    @keyframes ping {
+      0%   { transform: scale(1);   opacity: .7; }
+      70%  { transform: scale(2.6); opacity: 0; }
+      100% { transform: scale(2.6); opacity: 0; }
+    }
+    .live.off::before { background: var(--red); }
+    .live.off::after  { background: var(--red); animation: none; }
+
+    .brand { font-size: .88rem; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+
+    /* Search */
+    .search-wrap { flex: 1; max-width: 360px; position: relative; }
+    .search-wrap svg {
+      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+      color: var(--text3); pointer-events: none;
+    }
+    #searchInput {
+      width: 100%;
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 5px 12px 5px 32px;
+      font-size: .83rem;
+      color: var(--text);
+      outline: none;
+      transition: border-color .2s, background .2s;
+    }
+    #searchInput::placeholder { color: var(--text3); }
+    #searchInput:focus {
+      border-color: rgba(var(--accent-rgb, 124,131,224), .55);
+      background: rgba(var(--bg-rgb), 0.4);
+    }
+
+    .spacer { flex: 1; }
+
+    .stat-pill {
+      font-size: .76rem; color: var(--text2);
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 4px 11px; border-radius: 20px; white-space: nowrap; flex-shrink: 0;
+    }
+    .stat-pill b { color: var(--text); font-weight: 600; }
+
+    /* Settings gear button */
+    .gear-btn {
+      width: 30px; height: 30px;
+      border-radius: 7px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: transparent;
+      color: var(--text2);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s, color .15s, border-color .15s;
+      flex-shrink: 0;
+    }
+    .gear-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); border-color: var(--border2); }
+    .gear-btn.open  { background: var(--accent-b); color: var(--accent); border-color: rgba(124,131,224,.4); }
+
+    /* ── Settings modal ───────────────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 50;
+      background: rgba(0,0,0,.45);
+      backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity .18s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+
+    .modal {
+      background: var(--s1);
+      border: 1px solid var(--border2);
+      border-radius: 14px;
+      width: 320px;
+      box-shadow: 0 24px 64px rgba(0,0,0,.5);
+      overflow: hidden;
+      transform: translateY(8px);
+      transition: transform .18s;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+
+    .modal-head {
+      padding: 14px 18px 12px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-head span { font-size: .9rem; font-weight: 600; }
+    .modal-close {
+      width: 26px; height: 26px; border-radius: 6px;
+      border: none; background: var(--s2); color: var(--text2);
+      cursor: pointer; font-size: 1rem; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s, color .15s;
+    }
+    .modal-close:hover { background: var(--s3); color: var(--text); }
+
+    .modal-body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+
+    .field-label {
+      font-size: .72rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--text3); margin-bottom: 7px;
+    }
+
+    /* Wallpaper preview */
+    .wp-preview {
+      width: 100%; height: 90px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--s2);
+      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 8px;
+      color: var(--text3); font-size: .8rem;
+    }
+    .wp-preview img { width: 100%; height: 100%; object-fit: cover; }
+
+    .btn-row { display: flex; gap: 8px; }
+
+    .btn {
+      flex: 1; padding: 7px 12px; border-radius: 7px; font-size: .8rem;
+      font-weight: 500; cursor: pointer; border: 1px solid var(--border);
+      background: var(--s2); color: var(--text2);
+      transition: background .15s, color .15s, border-color .15s;
+      text-align: center;
+    }
+    .btn:hover { background: var(--s3); color: var(--text); border-color: var(--border2); }
+    .btn.primary {
+      background: var(--accent-b); color: var(--accent);
+      border-color: rgba(124,131,224,.35);
+    }
+    .btn.primary:hover { background: rgba(124,131,224,.22); }
+    .btn.danger { color: var(--red); border-color: rgba(248,113,113,.2); }
+    .btn.danger:hover { background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.35); }
+
+    .upload-label { display: block; cursor: pointer; }
+    #wpFileInput { display: none; }
+
+    /* Opacity / font-size sliders */
+    .slider-row { display: flex; align-items: center; gap: 10px; }
+    .slider-row input[type=range] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+    #opacityVal, #fontSizeVal { font-size: .78rem; color: var(--text2); min-width: 36px; text-align: right; }
+
+    /* Modal divider */
+    .modal-divider { height: 1px; background: var(--border); margin: 4px -18px; }
+
+    /* Appearance section */
+    .appear-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; padding: 5px 0;
+    }
+    .appear-lbl { font-size: .8rem; color: var(--text2); flex-shrink: 0; min-width: 90px; }
+
+    .clr-group { display: flex; gap: 6px; align-items: center; }
+
+    /* Colour swatch: visible box, native picker sits invisible on top */
+    .clr-wrap {
+      position: relative; display: inline-flex; flex-direction: column;
+      align-items: center; gap: 3px; cursor: pointer;
+    }
+    .clr-box {
+      width: 28px; height: 28px; border-radius: 7px;
+      border: 1.5px solid var(--border2);
+      transition: border-color .15s, transform .1s;
+    }
+    .clr-wrap:hover .clr-box { border-color: var(--accent); transform: scale(1.08); }
+    .clr-wrap input[type=color] {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      opacity: 0; cursor: pointer; border: none;
+    }
+    .clr-sub { font-size: .63rem; color: var(--text3); pointer-events: none; }
+
+    /* ── Filter chips ─────────────────────────────────────────────────────── */
+    .filterbar {
+      position: sticky;
+      z-index: 29;
+      height: 38px;
+      padding: 0 12px 0 20px;
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(var(--bg-rgb), 0.35);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .chip-scroll {
+      flex: 1; min-width: 0;
+      display: flex; align-items: center; gap: 6px;
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .chip-scroll::-webkit-scrollbar { display: none; }
+
+    /* Date range filter */
+    .date-filter {
+      display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+      padding-left: 10px; border-left: 1px solid rgba(255,255,255,0.08);
+    }
+    .date-input {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px; padding: 3px 6px;
+      font-size: .71rem; color: var(--text2);
+      color-scheme: dark; cursor: pointer; font-family: inherit;
+      transition: border-color .15s, color .15s;
+    }
+    .date-input:focus { outline: none; border-color: rgba(124,131,224,.5); color: var(--text); }
+    .date-sep { font-size: .68rem; color: var(--text3); }
+    .date-reset {
+      font-size: .68rem; font-weight: 600;
+      background: transparent; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 5px; padding: 2px 7px; color: var(--text3);
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+    }
+    .date-reset:hover { background: var(--s2); color: var(--text2); border-color: var(--border2); }
+    .date-reset.is-default { background: var(--accent-b); color: var(--accent); border-color: rgba(124,131,224,.35); }
+
+    .chip {
+      flex-shrink: 0;
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 11px; border-radius: 20px;
+      font-size: .75rem; font-weight: 500;
+      border: 1px solid var(--border);
+      background: transparent; color: var(--text3);
+      cursor: pointer; user-select: none; white-space: nowrap;
+      transition: all .15s;
+    }
+    .chip:hover { background: var(--s2); color: var(--text2); border-color: var(--border2); }
+    .chip.active {
+      background: var(--accent-b); border-color: rgba(124,131,224,.35); color: var(--accent);
+    }
+    .chip-n {
+      font-size: .67rem; font-weight: 700;
+      background: rgba(255,255,255,.07); border-radius: 8px;
+      padding: 0 5px; color: var(--text3);
+    }
+    .chip.active .chip-n { background: rgba(124,131,224,.2); color: var(--accent); }
+
+    /* ── Table ────────────────────────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+
+    col.c-av   { width: 54px; }
+    col.c-msg  { /* flex */ }
+    col.c-cmt  { width: 190px; }
+    col.c-time { width: 92px; }
+    col.c-done { width: 54px; }
+
+    thead tr {
+      position: sticky;
+      top: var(--thead-top, 96px);
+      z-index: 28;
+      background: rgba(var(--bg-rgb), 0.55);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+
+    /* When wallpaper is active, let it show through all sticky bars */
+    body.has-wp .topbar    { background: rgba(var(--bg-rgb), 0.06); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+    body.has-wp .filterbar { background: rgba(var(--bg-rgb), 0.06); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+    body.has-wp thead tr   { background: rgba(var(--bg-rgb), 0.10); backdrop-filter: blur(6px); }
+
+    th {
+      padding: 7px 14px;
+      font-size: .67rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .08em;
+      color: var(--text3); text-align: left;
+    }
+    th.c-c { text-align: center; }
+    th.c-r { text-align: right; }
+    th.sortable { cursor: pointer; user-select: none; transition: color .15s; }
+    th.sortable:hover { color: var(--text2); }
+    th.sortable.active { color: var(--accent); }
+    .arr { display: inline-block; margin-left: 3px; font-size: .58rem; vertical-align: middle; opacity: .35; }
+    th.active .arr { opacity: 1; }
+
+    /* ── Rows ─────────────────────────────────────────────────────────────── */
+    tbody tr {
+      position: relative;
+      border-bottom: 1px solid var(--border);
+      transition: background .1s;
+    }
+    tbody tr::after {
+      content: ''; position: absolute;
+      left: 0; top: 0; bottom: 0; width: 2px;
+      background: transparent; transition: background .4s; pointer-events: none;
+    }
+    tbody tr.is-new::after { background: var(--accent); }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+    tbody tr.checked { opacity: .32; }
+    tbody tr.checked .msg-title { text-decoration: line-through; }
+    tbody tr.filtered-out { display: none; }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-5px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    tr.is-new { animation: slideIn .2s ease; }
+
+    td { padding: 10px 14px; vertical-align: middle; font-size: .86rem; line-height: 1.5; }
+    td.c-c { text-align: center; }
+    td.c-r { text-align: right; }
+
+    /* App avatar */
+    td.av-cell { padding: 10px 6px; }
+    .av {
+      width: 34px; height: 34px; border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .78rem; font-weight: 700; margin: 0 auto;
+      letter-spacing: 0;
+    }
+
+    /* Message cell — clickable to toggle Done */
+    td.msg-cell { cursor: pointer; }
+    td.msg-cell:hover .msg-title { filter: brightness(1.25); }
+    .msg-app   { font-size: .69rem; font-weight: 600; color: var(--text3); margin-bottom: 1px; letter-spacing: .02em; }
+    .msg-title { font-size: .86rem; font-weight: 500; color: var(--text); word-break: break-word; transition: color .1s; }
+    .msg-body  { font-size: .77rem; color: var(--text3); margin-top: 2px; word-break: break-word; line-height: 1.4; }
+
+    /* Comment cell */
+    td.cmt-cell { padding: 6px 10px; vertical-align: middle; }
+    .cmt-inner {
+      cursor: text; min-height: 30px; display: flex; align-items: center;
+      border-radius: 6px; padding: 4px 6px;
+      border: 1px solid transparent;
+      transition: border-color .15s, background .15s;
+    }
+    .cmt-inner:hover { border-color: var(--border2); background: rgba(255,255,255,0.03); }
+    .cmt-text { font-size: .8rem; color: var(--text2); word-break: break-word; line-height: 1.4; }
+    .cmt-ph   { font-size: .78rem; color: var(--text3); font-style: italic; }
+    .cmt-ph::before { content: '✎ '; font-style: normal; opacity: .5; }
+    .cmt-input  {
+      width: 100%; background: transparent; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px; padding: 5px 8px; font-size: .8rem;
+      color: var(--text); outline: none; font-family: inherit;
+      transition: border-color .2s, background .2s;
+    }
+    .cmt-input:focus {
+      border-color: rgba(124,131,224,.55);
+      background: rgba(var(--bg-rgb), 0.4);
+    }
+
+    /* Timestamp */
+    .ts-rel { font-size: .77rem; color: var(--text2); white-space: nowrap; }
+    .ts-abs { font-size: .7rem;  color: var(--text3); margin-top: 2px; white-space: nowrap; }
+
+    /* Custom checkbox */
+    input[type=checkbox] {
+      appearance: none; -webkit-appearance: none;
+      width: 16px; height: 16px; border-radius: 5px;
+      border: 1.5px solid var(--s3); background: transparent;
+      cursor: pointer; position: relative;
+      transition: border-color .15s, background .15s;
+    }
+    input[type=checkbox]:hover { border-color: var(--accent); }
+    input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
+    input[type=checkbox]:checked::after {
+      content: ''; position: absolute;
+      left: 4px; top: 1px; width: 5px; height: 9px;
+      border: 2px solid #fff; border-top: none; border-left: none;
+      transform: rotate(45deg);
+    }
+
+    /* Empty state */
+    #emptyState td { text-align: center; padding: 0; }
+    .empty-wrap {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 10px; padding: 100px 20px;
+    }
+    .empty-icon {
+      width: 50px; height: 50px; border-radius: 14px;
+      background: var(--s2); border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center; font-size: 22px;
+    }
+    .empty-h { font-size: .93rem; font-weight: 600; color: var(--text2); }
+    .empty-s { font-size: .8rem; color: var(--text3); max-width: 300px; text-align: center; }
+
+    /* ── Offline overlay ──────────────────────────────────────────────────── */
+    #offlineOverlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(var(--bg-rgb), 0.90);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 12px; padding: 32px;
+      opacity: 0; pointer-events: none; transition: opacity .3s;
+    }
+    #offlineOverlay.show { opacity: 1; pointer-events: all; }
+    .ol-icon  { font-size: 2.2rem; margin-bottom: 4px; }
+    .ol-title { font-size: 1.05rem; font-weight: 700; }
+    .ol-sub   { font-size: .83rem; color: var(--text2); text-align: center; line-height: 1.6; }
+    .ol-sub code {
+      background: var(--s2); border-radius: 4px;
+      padding: 1px 6px; font-size: .8rem; color: var(--accent);
+    }
+    .ol-spinner {
+      width: 20px; height: 20px; border-radius: 50%;
+      border: 2px solid var(--border2); border-top-color: var(--accent);
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<!-- Wallpaper layer -->
+<div id="wpBg"></div>
+
+<!-- Offline overlay (shown when server stops) -->
+<div id="offlineOverlay">
+  <div class="ol-icon">⏹</div>
+  <div class="ol-title" id="olTitle">Server offline</div>
+  <div class="ol-sub" id="olSub">Run <code>systemctl --user start notification-manager</code> to start it again.<br>This page will reconnect automatically.</div>
+  <div class="ol-spinner" id="olSpinner" style="display:none"></div>
+</div>
+
+<!-- Top bar -->
+<header class="topbar" id="topbar">
+  <div class="live" id="liveDot"></div>
+  <span class="brand">Notifications</span>
+
+  <div class="search-wrap">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input id="searchInput" type="text" placeholder="Search…" oninput="applyFilter()">
+  </div>
+
+  <div class="spacer"></div>
+  <span class="stat-pill"><b id="notDoneNum">0</b>/<b id="countNum">0</b></span>
+
+  <button class="gear-btn" id="gearBtn" onclick="toggleSettings()" title="Settings">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </button>
+</header>
+
+<!-- Filter chips + date range -->
+<div class="filterbar" id="filterbar">
+  <div class="chip-scroll" id="chipScroll">
+    <button class="chip active" data-app="" onclick="setAppFilter(this)">
+      All <span class="chip-n" id="chip-n-all">0</span>
+    </button>
+  </div>
+  <div class="date-filter">
+    <input type="date" class="date-input" id="dateFrom" onchange="onDateChange()">
+    <span class="date-sep">→</span>
+    <input type="date" class="date-input" id="dateTo" onchange="onDateChange()">
+    <button class="date-reset is-default" id="dateResetBtn" onclick="resetDateFilter()" title="Reset to last 7 days">7d</button>
+  </div>
+</div>
+
+<!-- Table -->
+<table>
+  <colgroup>
+    <col class="c-av">
+    <col class="c-msg">
+    <col class="c-cmt">
+    <col class="c-time">
+    <col class="c-done">
+  </colgroup>
+  <thead id="thead">
+    <tr>
+      <th class="sortable c-c" data-col="app_name" onclick="sortBy('app_name')">App <span class="arr" id="arrow-app_name">&#9650;</span></th>
+      <th>Message</th>
+      <th class="sortable" data-col="comment" onclick="sortBy('comment')">Note <span class="arr" id="arrow-comment">&#9650;</span></th>
+      <th class="sortable active c-r" data-col="timestamp" onclick="sortBy('timestamp')">
+        Time <span class="arr" id="arrow-timestamp">&#9660;</span>
+      </th>
+      <th class="sortable c-c" data-col="checked" onclick="sortBy('checked')">Done <span class="arr" id="arrow-checked">&#9650;</span></th>
+    </tr>
+  </thead>
+  <tbody id="tbody"></tbody>
+</table>
+
+<!-- Settings modal -->
+<div class="modal-overlay" id="settingsOverlay" onclick="overlayClick(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <span>Settings</span>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <div>
+        <div class="field-label">Wallpaper</div>
+        <div class="wp-preview" id="wpPreview">No wallpaper set</div>
+        <div class="btn-row">
+          <label class="btn primary upload-label">
+            Choose image
+            <input type="file" id="wpFileInput" accept="image/jpeg,image/png,image/webp,image/gif"
+                   onchange="handleWpUpload(this)">
+          </label>
+          <button class="btn" onclick="pasteWallpaper()" title="Paste image from clipboard (Ctrl+V)">
+            Paste
+          </button>
+          <button class="btn danger" id="removeWpBtn" onclick="removeWallpaper()" style="display:none">
+            Remove
+          </button>
+        </div>
+        <div id="pasteError" style="display:none;margin-top:7px;font-size:.75rem;color:var(--red)"></div>
+      </div>
+
+      <div>
+        <div class="field-label">Wallpaper opacity</div>
+        <div class="slider-row">
+          <input type="range" id="opacitySlider" min="5" max="75" value="30"
+                 oninput="setWpOpacity(this.value)">
+          <span id="opacityVal">30%</span>
+        </div>
+      </div>
+
+      <div class="modal-divider"></div>
+
+      <div>
+        <div class="field-label">Appearance</div>
+
+        <div class="appear-row">
+          <span class="appear-lbl">Background</span>
+          <label class="clr-wrap" title="Background color">
+            <span class="clr-box" id="clrBg"></span>
+            <span class="clr-sub">BG</span>
+            <input type="color" id="clrBgInput" oninput="onColorChange('bg', this.value)">
+          </label>
+        </div>
+
+        <div class="appear-row">
+          <span class="appear-lbl">Text colors</span>
+          <div class="clr-group">
+            <label class="clr-wrap" title="Primary text">
+              <span class="clr-box" id="clrText"></span>
+              <span class="clr-sub">Primary</span>
+              <input type="color" id="clrTextInput" oninput="onColorChange('text', this.value)">
+            </label>
+            <label class="clr-wrap" title="Secondary text">
+              <span class="clr-box" id="clrText2"></span>
+              <span class="clr-sub">Secondary</span>
+              <input type="color" id="clrText2Input" oninput="onColorChange('text2', this.value)">
+            </label>
+            <label class="clr-wrap" title="Muted / placeholder text">
+              <span class="clr-box" id="clrText3"></span>
+              <span class="clr-sub">Muted</span>
+              <input type="color" id="clrText3Input" oninput="onColorChange('text3', this.value)">
+            </label>
+          </div>
+        </div>
+
+        <div class="appear-row">
+          <span class="appear-lbl">Font size</span>
+          <div class="slider-row" style="flex:1">
+            <input type="range" id="fontSizeSlider" min="12" max="20" value="14"
+                   oninput="onFontSizeChange(this.value)">
+            <span id="fontSizeVal">14px</span>
+          </div>
+        </div>
+
+        <button class="btn" style="width:100%;margin-top:8px" onclick="resetAppearance()">
+          Reset to defaults
+        </button>
+      </div>
+
+      <div class="modal-divider"></div>
+
+      <div>
+        <div class="field-label">Server</div>
+        <div class="btn-row">
+          <button class="btn primary" id="restartBtn" onclick="serverRestart()">↺ Restart</button>
+          <button class="btn danger"  id="stopBtn"    onclick="serverStop()">⏹ Stop</button>
+        </div>
+        <div id="serverMsg" style="margin-top:8px;font-size:.75rem;color:var(--text3);min-height:16px;text-align:center"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  // Every state-changing request must carry the per-install token (CSRF protection).
+  const NM_TOKEN = document.querySelector('meta[name="nm-token"]').content;
+  const _fetch = window.fetch.bind(window);
+  window.fetch = (url, opts = {}) => {
+    const method = (opts.method || 'GET').toUpperCase();
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      const headers = new Headers(opts.headers || {});
+      headers.set('X-NM-Token', NM_TOKEN);
+      opts = { ...opts, headers };
+    }
+    return _fetch(url, opts);
+  };
+
+  const tbody     = document.getElementById('tbody');
+  const liveDot    = document.getElementById('liveDot');
+  const countNum   = document.getElementById('countNum');
+  const notDoneNum = document.getElementById('notDoneNum');
+  const filterbar  = document.getElementById('filterbar');
+  const chipScroll = document.getElementById('chipScroll');
+  const wpBg       = document.getElementById('wpBg');
+
+  let total   = 0;
+  let notDone = 0;
+  let sortCol   = 'timestamp';
+  let sortAsc   = false;
+  let activeApp = '';
+  let searchQ   = '';
+  let dateFrom  = '';   // 'YYYY-MM-DD'
+  let dateTo    = '';   // 'YYYY-MM-DD'
+
+  const ALL       = new Map();  // id → notification object
+  const appCounts = new Map();  // app_name → count
+
+  // ── Colour helpers ────────────────────────────────────────────────────────
+  function hue(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffff;
+    return h % 360;
+  }
+  function avStyle(name) {
+    const h = hue(name || 'x');
+    return `background:hsl(${h},36%,22%);color:hsl(${h},55%,72%)`;
+  }
+  function esc(s) {
+    return String(s ?? '')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Timestamps ────────────────────────────────────────────────────────────
+  function relTime(ts) {
+    const sec = Math.floor((Date.now() - new Date(ts)) / 1000);
+    if (sec < 10)  return 'just now';
+    if (sec < 60)  return `${sec}s ago`;
+    const m = Math.floor(sec / 60);
+    if (m < 60)    return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24)    return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    if (d < 30)    return `${d}d ago`;
+    return new Date(ts).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  }
+  function absTime(ts) {
+    const d = new Date(ts), now = new Date();
+    const t = d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+    if (d.toDateString() === now.toDateString()) return t;
+    return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+t;
+  }
+
+  // ── Filter ────────────────────────────────────────────────────────────────
+  function visible(n) {
+    if (activeApp && n.app_name !== activeApp) return false;
+    if (searchQ) {
+      const q = searchQ.toLowerCase();
+      if (![(n.app_name||''),(n.summary||''),(n.body||''),(n.comment||'')]
+          .some(s => s.toLowerCase().includes(q))) return false;
+    }
+    const day = n.timestamp.slice(0, 10); // 'YYYY-MM-DD' from stored local timestamp
+    if (dateFrom && day < dateFrom) return false;
+    if (dateTo   && day > dateTo)   return false;
+    return true;
+  }
+  function applyFilter() {
+    searchQ = document.getElementById('searchInput').value.trim();
+    ALL.forEach((n, id) => {
+      document.getElementById(`row-${id}`)?.classList.toggle('filtered-out', !visible(n));
+    });
+    updateFilteredCounts();
+  }
+  window.setAppFilter = function(btn) {
+    chipScroll.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    activeApp = btn.dataset.app;
+    applyFilter();
+  };
+
+  // ── Chips ─────────────────────────────────────────────────────────────────
+  function rebuildChips() {
+    chipScroll.querySelectorAll('.chip:not([data-app=""])').forEach(c => c.remove());
+    [...appCounts.entries()].sort((a,b) => b[1]-a[1]).forEach(([app, cnt]) => {
+      const btn = document.createElement('button');
+      btn.className = 'chip' + (activeApp === app ? ' active' : '');
+      btn.dataset.app = app;
+      btn.onclick = () => setAppFilter(btn);
+      btn.innerHTML = `${esc(app)} <span class="chip-n">${cnt}</span>`;
+      chipScroll.appendChild(btn);
+    });
+    document.getElementById('chip-n-all').textContent = total;
+  }
+
+  // ── Sort ──────────────────────────────────────────────────────────────────
+  function applySort() {
+    const rows = [...tbody.querySelectorAll('tr[id^="row-"]')];
+    rows.sort((a,b) => {
+      const na = ALL.get(+a.id.slice(4)), nb = ALL.get(+b.id.slice(4));
+      if (!na||!nb) return 0;
+      const cmp = String(na[sortCol]??'').localeCompare(String(nb[sortCol]??''),undefined,{numeric:true});
+      return sortAsc ? cmp : -cmp;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+  }
+  window.sortBy = function(col) {
+    sortAsc = sortCol === col ? !sortAsc : col === 'app_name';
+    sortCol = col;
+    document.querySelectorAll('th.sortable').forEach(th => {
+      const c = th.dataset.col, active = c === col;
+      th.classList.toggle('active', active);
+      const ar = document.getElementById(`arrow-${c}`);
+      if (ar) { ar.innerHTML = (active&&sortAsc)?'&#9650;':'&#9660;'; ar.style.opacity=active?'1':'.3'; }
+    });
+    applySort();
+  };
+
+  // ── Toggle check ──────────────────────────────────────────────────────────
+  window.toggleCheck = async function(id, cb) {
+    const n = ALL.get(id);
+    const wasChecked = n?.checked;
+    document.getElementById(`row-${id}`)?.classList.toggle('checked', cb.checked);
+    if (n) n.checked = cb.checked ? 1 : 0;
+    if (cb.checked && !wasChecked) { notDone = Math.max(0, notDone - 1); updateFilteredCounts(); }
+    if (!cb.checked && wasChecked) { notDone++; updateFilteredCounts(); }
+    await fetch(`/notifications/${id}/check`,{
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({checked: cb.checked}),
+    });
+  };
+
+  function toggleCheckById(id) {
+    const tr = document.getElementById(`row-${id}`);
+    if (!tr) return;
+    const cb = tr.querySelector('input[type=checkbox]');
+    cb.checked = !cb.checked;
+    toggleCheck(id, cb);
+  }
+
+  // ── Comment editing ───────────────────────────────────────────────────────
+  function makeCommentCell(n) {
+    const td = document.createElement('td');
+    td.className = 'cmt-cell';
+
+    const inner = document.createElement('div');
+    inner.className = 'cmt-inner';
+    renderCmt(inner, n.comment);
+    td.appendChild(inner);
+
+    inner.addEventListener('click', e => {
+      e.stopPropagation();
+      startCmtEdit(inner, n);
+    });
+    return td;
+  }
+
+  function renderCmt(inner, text) {
+    inner.innerHTML = '';
+    if (text) {
+      const d = document.createElement('div');
+      d.className = 'cmt-text';
+      d.textContent = text;
+      inner.appendChild(d);
+    } else {
+      const d = document.createElement('div');
+      d.className = 'cmt-ph';
+      d.textContent = 'Add note…';
+      inner.appendChild(d);
+    }
+  }
+
+  function startCmtEdit(inner, n) {
+    if (inner.querySelector('input')) return;
+    const orig = n.comment || '';
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'cmt-input';
+    inp.value = orig;
+    inp.placeholder = 'Add note…';
+    inner.innerHTML = '';
+    inner.appendChild(inp);
+    inp.focus(); inp.select();
+
+    const save = async () => {
+      const val = inp.value.trim();
+      if (val !== orig) {
+        n.comment = val;
+        await fetch(`/notifications/${n.id}/comment`,{
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({comment: val}),
+        });
+      }
+      renderCmt(inner, n.comment);
+    };
+    inp.addEventListener('blur', save);
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { e.preventDefault(); inp.blur(); }
+      if (e.key === 'Escape') { inp.value = orig; inp.blur(); }
+    });
+  }
+
+  // ── Row builder ───────────────────────────────────────────────────────────
+  function makeRow(n, isNew = false) {
+    const tr = document.createElement('tr');
+    tr.id = `row-${n.id}`;
+    if (n.checked)   tr.classList.add('checked');
+    if (isNew)       tr.classList.add('is-new');
+    if (!visible(n)) tr.classList.add('filtered-out');
+
+    // Avatar cell
+    const avTd = document.createElement('td');
+    avTd.className = 'av-cell c-c';
+    avTd.innerHTML = `<div class="av" style="${avStyle(n.app_name)}" title="${esc(n.app_name)}">${esc((n.app_name||'?')[0].toUpperCase())}</div>`;
+
+    // Message cell — click toggles Done
+    const msgTd = document.createElement('td');
+    msgTd.className = 'msg-cell';
+    msgTd.innerHTML = `
+      <div class="msg-app">${esc(n.app_name)}</div>
+      <div class="msg-title">${esc(n.summary)}</div>
+      ${n.body ? `<div class="msg-body">${esc(n.body)}</div>` : ''}`;
+    msgTd.addEventListener('click', () => toggleCheckById(n.id));
+
+    // Comment cell
+    const cmtTd = makeCommentCell(n);
+
+    // Time cell
+    const timeTd = document.createElement('td');
+    timeTd.className = 'c-r';
+    timeTd.innerHTML = `<div class="ts-rel" id="tsrel-${n.id}">${relTime(n.timestamp)}</div><div class="ts-abs">${absTime(n.timestamp)}</div>`;
+
+    // Done cell
+    const doneTd = document.createElement('td');
+    doneTd.className = 'c-c';
+    doneTd.innerHTML = `<input type="checkbox" ${n.checked?'checked':''} onchange="toggleCheck(${n.id},this)">`;
+
+    tr.append(avTd, msgTd, cmtTd, timeTd, doneTd);
+    return tr;
+  }
+
+  // ── Count / empty state ───────────────────────────────────────────────────
+  function setCount(n)   { total   = n; }
+  function setNotDone(n) { notDone = n; }
+  function updateFilteredCounts() {
+    let ft = 0, fnd = 0;
+    ALL.forEach(n => { if (visible(n)) { ft++; if (!n.checked) fnd++; } });
+    countNum.textContent   = ft;
+    notDoneNum.textContent = fnd;
+  }
+
+  function showEmpty() {
+    if (tbody.querySelector('tr[id^="row-"]') || document.getElementById('emptyState')) return;
+    const tr = document.createElement('tr');
+    tr.id = 'emptyState';
+    tr.innerHTML = `<td colspan="5"><div class="empty-wrap">
+      <div class="empty-icon">🔔</div>
+      <div class="empty-h">Listening for notifications</div>
+      <div class="empty-s">Notifications from Firefox, Slack, and other apps will appear here automatically</div>
+    </div></td>`;
+    tbody.appendChild(tr);
+  }
+
+  // ── Load & SSE ────────────────────────────────────────────────────────────
+  async function loadAll() {
+    const list = await fetch('/notifications').then(r => r.json());
+    setCount(list.length);
+    if (!list.length) { showEmpty(); setNotDone(0); updateFilteredCounts(); return; }
+    let nd = 0;
+    list.forEach(n => {
+      if (!n.checked) nd++;
+      ALL.set(n.id, n);
+      appCounts.set(n.app_name, (appCounts.get(n.app_name)||0)+1);
+    });
+    setNotDone(nd);
+    const frag = document.createDocumentFragment();
+    list.forEach(n => frag.appendChild(makeRow(n)));
+    tbody.appendChild(frag);
+    rebuildChips(); applySort(); updateFilteredCounts();
+  }
+
+  // ── Offline overlay ────────────────────────────────────────────────────────
+  let _reconnectTimer = null;
+  let _sseFailStreak  = 0;
+
+  function showOffline(title, sub) {
+    if (title) document.getElementById('olTitle').textContent = title;
+    if (sub)   document.getElementById('olSub').innerHTML = sub;
+    document.getElementById('olSpinner').style.display = '';
+    document.getElementById('offlineOverlay').classList.add('show');
+    if (_reconnectTimer) return;
+    _reconnectTimer = setInterval(async () => {
+      try {
+        const r = await fetch('/notifications', { cache: 'no-store' });
+        if (r.ok) { clearInterval(_reconnectTimer); _reconnectTimer = null; location.reload(); }
+      } catch (_) {}
+    }, 1500);
+  }
+
+  function hideOffline() {
+    document.getElementById('offlineOverlay').classList.remove('show');
+    if (_reconnectTimer) { clearInterval(_reconnectTimer); _reconnectTimer = null; }
+    _sseFailStreak = 0;
+  }
+
+  function connect() {
+    const es = new EventSource('/stream');
+    es.onopen  = () => { liveDot.classList.remove('off'); _sseFailStreak = 0; hideOffline(); };
+    es.onerror = () => {
+      liveDot.classList.add('off'); es.close();
+      _sseFailStreak++;
+      if (_sseFailStreak >= 3) showOffline('Connection lost', 'Waiting for the server to come back…');
+      setTimeout(connect, 3000);
+    };
+    es.onmessage = e => {
+      if (!e.data || e.data.startsWith(':')) return;
+      let n; try { n = JSON.parse(e.data); } catch { return; }
+      if (document.getElementById(`row-${n.id}`)) return;
+      document.getElementById('emptyState')?.remove();
+      ALL.set(n.id, n);
+      appCounts.set(n.app_name, (appCounts.get(n.app_name)||0)+1);
+      tbody.appendChild(makeRow(n, true));
+      setCount(total+1); setNotDone(notDone+1); rebuildChips(); applySort(); updateFilteredCounts();
+    };
+  }
+
+  // ── Appearance ────────────────────────────────────────────────────────────
+  const DEFAULTS = {
+    bg: '#1e1f2e', text: '#d8d9f0', text2: '#9a9bc0', text3: '#5c5d7a', fontSize: 14,
+  };
+
+  function hexToRgbStr(hex) {
+    const n = parseInt(hex.replace('#',''), 16);
+    return `${(n>>16)&255},${(n>>8)&255},${n&255}`;
+  }
+  function hexToRgba(hex, a) { return `rgba(${hexToRgbStr(hex)},${a})`; }
+
+  function applyAppearance(p) {
+    const r = document.documentElement;
+    r.style.setProperty('--bg',     p.bg);
+    r.style.setProperty('--bg-rgb', hexToRgbStr(p.bg));  // keeps topbar/filterbar/thead in sync
+    r.style.setProperty('--text',   p.text);
+    r.style.setProperty('--text2',  p.text2);
+    r.style.setProperty('--text3',  p.text3);
+    r.style.fontSize = p.fontSize + 'px';
+    // sync swatch boxes + hidden inputs
+    [['Bg','bg'],['Text','text'],['Text2','text2'],['Text3','text3']].forEach(([id,key]) => {
+      const box = document.getElementById('clr'+id);
+      const inp = document.getElementById('clr'+id+'Input');
+      if (box) box.style.background = p[key];
+      if (inp) inp.value = p[key];
+    });
+    document.getElementById('fontSizeSlider').value = p.fontSize;
+    document.getElementById('fontSizeVal').textContent = p.fontSize + 'px';
+    // if wallpaper is active, re-tint the body overlay
+    if (document.body.classList.contains('has-wp')) {
+      document.body.style.background = hexToRgba(p.bg, 0.72);
+    }
+  }
+
+  function saveAppearance(p) { localStorage.setItem('appearance', JSON.stringify(p)); }
+
+  function loadAppearance() {
+    try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('appearance') || '{}') }; }
+    catch { return { ...DEFAULTS }; }
+  }
+
+  let currentAppearance = loadAppearance();
+
+  window.onColorChange = function(key, value) {
+    currentAppearance[key] = value;
+    applyAppearance(currentAppearance);
+    saveAppearance(currentAppearance);
+  };
+
+  window.onFontSizeChange = function(val) {
+    currentAppearance.fontSize = parseInt(val);
+    applyAppearance(currentAppearance);
+    saveAppearance(currentAppearance);
+    pinOffsets();
+  };
+
+  window.resetAppearance = function() {
+    currentAppearance = { ...DEFAULTS };
+    applyAppearance(currentAppearance);
+    saveAppearance(currentAppearance);
+    pinOffsets();
+  };
+
+  // ── Wallpaper ─────────────────────────────────────────────────────────────
+  function applyWpOpacity(val) {
+    wpBg.style.opacity = val / 100;
+    document.getElementById('opacitySlider').value = val;
+    document.getElementById('opacityVal').textContent = val + '%';
+    localStorage.setItem('wpOpacity', val);
+  }
+  window.setWpOpacity = function(val) { applyWpOpacity(val); };
+
+  function applyWallpaper(url) {
+    wpBg.style.backgroundImage = `url('${url}')`;
+    document.body.classList.add('has-wp');
+    document.body.style.background = hexToRgba(currentAppearance.bg, 0.72);
+    document.getElementById('wpPreview').innerHTML = `<img src="${url}" alt="Wallpaper">`;
+    document.getElementById('removeWpBtn').style.display = '';
+  }
+
+  function clearWpDisplay() {
+    wpBg.style.backgroundImage = 'none';
+    document.body.classList.remove('has-wp');
+    document.body.style.background = '';   // fall back to --bg CSS var
+    document.getElementById('wpPreview').textContent = 'No wallpaper set';
+    document.getElementById('removeWpBtn').style.display = 'none';
+  }
+
+  async function initWallpaper() {
+    const opacity = parseInt(localStorage.getItem('wpOpacity') || '30', 10);
+    applyWpOpacity(opacity);
+    const res = await fetch('/wallpaper', { method: 'HEAD' }).catch(() => ({ ok: false }));
+    if (res.ok) applyWallpaper('/wallpaper?' + Date.now());
+  }
+
+  window.handleWpUpload = async function(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/wallpaper', { method: 'POST', body: form });
+    if ((await res.json()).ok) applyWallpaper('/wallpaper?' + Date.now());
+    input.value = '';
+  };
+
+  window.removeWallpaper = async function() {
+    await fetch('/wallpaper', { method: 'DELETE' });
+    clearWpDisplay();
+  };
+
+  async function uploadImageBlob(blob) {
+    const ext = blob.type.split('/')[1]?.replace('jpeg','jpg') || 'png';
+    const file = new File([blob], `wallpaper.${ext}`, { type: blob.type });
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/wallpaper', { method: 'POST', body: form });
+    if ((await res.json()).ok) applyWallpaper('/wallpaper?' + Date.now());
+  }
+
+  function showPasteError(msg) {
+    const el = document.getElementById('pasteError');
+    el.textContent = msg;
+    el.style.display = '';
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+  }
+
+  window.pasteWallpaper = async function() {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imgType = item.types.find(t => t.startsWith('image/'));
+        if (imgType) {
+          await uploadImageBlob(await item.getType(imgType));
+          return;
+        }
+      }
+      showPasteError('No image found in clipboard.');
+    } catch (err) {
+      showPasteError('Clipboard access denied. Try copying an image first.');
+    }
+  };
+
+  // Ctrl+V while settings modal is open
+  document.addEventListener('keydown', async e => {
+    if (e.key === 'v' && (e.ctrlKey || e.metaKey) &&
+        document.getElementById('settingsOverlay').classList.contains('open') &&
+        !document.activeElement?.matches('input, textarea')) {
+      e.preventDefault();
+      await window.pasteWallpaper();
+    }
+  });
+
+  // ── Settings modal ────────────────────────────────────────────────────────
+  const overlay = document.getElementById('settingsOverlay');
+  const gearBtn = document.getElementById('gearBtn');
+
+  window.toggleSettings = function() {
+    const open = overlay.classList.toggle('open');
+    gearBtn.classList.toggle('open', open);
+  };
+  window.closeSettings  = function() { overlay.classList.remove('open'); gearBtn.classList.remove('open'); };
+  window.overlayClick   = function(e) { if (e.target === overlay) closeSettings(); };
+
+  // ── Server control ────────────────────────────────────────────────────────
+  function setServerMsg(msg, color) {
+    const el = document.getElementById('serverMsg');
+    el.textContent = msg;
+    el.style.color = color || 'var(--text3)';
+  }
+
+  window.serverRestart = async function() {
+    const btn = document.getElementById('restartBtn');
+    btn.disabled = true;
+    btn.textContent = '↺ Restarting…';
+    setServerMsg('Sending restart signal…');
+    try {
+      await fetch('/server/restart', { method: 'POST' });
+    } catch (_) {}
+    setServerMsg('Waiting for server to come back…');
+    // Wait for the old process to die before polling
+    await new Promise(r => setTimeout(r, 1500));
+    const poll = setInterval(async () => {
+      try {
+        const r = await fetch('/notifications', { cache: 'no-store' });
+        if (r.ok) {
+          clearInterval(poll);
+          setServerMsg('Server restarted. Reloading…', 'var(--green)');
+          setTimeout(() => location.reload(), 800);
+        }
+      } catch (_) {}
+    }, 1000);
+    // Give up after 30s
+    setTimeout(() => {
+      clearInterval(poll);
+      btn.disabled = false;
+      btn.textContent = '↺ Restart';
+      setServerMsg('Restart timed out — check: journalctl --user -u notification-manager', 'var(--red)');
+    }, 30000);
+  };
+
+  window.serverStop = async function() {
+    if (!confirm('Stop the server? The page will become unreachable until you restart it manually.')) return;
+    document.getElementById('stopBtn').disabled = true;
+    setServerMsg('Stopping…');
+    try { await fetch('/server/stop', { method: 'POST' }); } catch (_) {}
+    closeSettings();
+    setTimeout(() => showOffline(
+      'Server stopped',
+      'Run <code>systemctl --user start notification-manager</code> to start it again.<br>This page will reconnect automatically.'
+    ), 400);
+  };
+
+  // ── Date filter ───────────────────────────────────────────────────────────
+  function localDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  function defaultFrom() { const d = new Date(); d.setDate(d.getDate()-6); return localDateStr(d); }
+  function defaultTo()   { return localDateStr(new Date()); }
+
+  function setDefaultDateRange() {
+    dateFrom = defaultFrom();
+    dateTo   = defaultTo();
+    document.getElementById('dateFrom').value = dateFrom;
+    document.getElementById('dateTo').value   = dateTo;
+    document.getElementById('dateResetBtn').classList.add('is-default');
+  }
+
+  function syncResetBtn() {
+    const isDefault = dateFrom === defaultFrom() && dateTo === defaultTo();
+    document.getElementById('dateResetBtn').classList.toggle('is-default', isDefault);
+  }
+
+  window.onDateChange = function() {
+    dateFrom = document.getElementById('dateFrom').value;
+    dateTo   = document.getElementById('dateTo').value;
+    syncResetBtn();
+    applyFilter();
+  };
+
+  window.resetDateFilter = function() {
+    setDefaultDateRange();
+    applyFilter();
+  };
+
+  // ── Sticky offsets ────────────────────────────────────────────────────────
+  function pinOffsets() {
+    const hdrH = document.getElementById('topbar').getBoundingClientRect().height;
+    const filH = document.getElementById('filterbar').getBoundingClientRect().height;
+    document.getElementById('filterbar').style.top = hdrH + 'px';
+    document.documentElement.style.setProperty('--thead-top', (hdrH + filH) + 'px');
+    document.documentElement.style.scrollPaddingTop =
+      (hdrH + filH + document.getElementById('thead').getBoundingClientRect().height) + 'px';
+  }
+
+  // Refresh relative timestamps every 30s
+  setInterval(() => {
+    ALL.forEach((n, id) => {
+      const el = document.getElementById(`tsrel-${id}`);
+      if (el) el.textContent = relTime(n.timestamp);
+    });
+  }, 30_000);
+
+  pinOffsets();
+  window.addEventListener('resize', pinOffsets);
+  applyAppearance(currentAppearance);
+  setDefaultDateRange();
+  initWallpaper();
+  loadAll().then(connect);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,19 @@
+[Unit]
+Description=Notification Manager - records desktop notifications (web UI on localhost)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+WorkingDirectory=@INSTALL_DIR@
+ExecStart=@INSTALL_DIR@/.venv/bin/python app.py
+Environment=PYTHONUNBUFFERED=1
+Environment=NM_HOST=127.0.0.1
+Environment=NM_PORT=@PORT@
+# Exit 42 = restart requested from the web UI (restarted because it is a "failure");
+# exit 0  = stop requested from the web UI (stays stopped).
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=graphical-session.target

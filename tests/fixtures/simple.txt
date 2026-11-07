@@ -1,0 +1,23 @@
+signal time=1730900000.000001 sender=org.freedesktop.DBus -> destination=:1.123 serial=2 path=/org/freedesktop/DBus; interface=org.freedesktop.DBus; member=NameAcquired
+   string ":1.123"
+signal time=1730900000.000002 sender=org.freedesktop.DBus -> destination=:1.123 serial=4 path=/org/freedesktop/DBus; interface=org.freedesktop.DBus; member=NameLost
+   string ":1.123"
+method call time=1730900010.123456 sender=:1.88 -> destination=:1.30 serial=7 path=/org/freedesktop/Notifications; interface=org.freedesktop.Notifications; member=Notify
+   string "notify-send"
+   uint32 0
+   string "dialog-information"
+   string "Build finished"
+   string "All 42 tests passed"
+   array [
+   ]
+   array [
+      dict entry(
+         string "urgency"
+         variant             byte 1
+      )
+      dict entry(
+         string "sender-pid"
+         variant             int64 12345
+      )
+   ]
+   int32 -1

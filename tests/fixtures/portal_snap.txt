@@ -1,0 +1,30 @@
+method call time=1730900030.000000 sender=:1.12 -> destination=:1.30 serial=31 path=/org/freedesktop/Notifications; interface=org.freedesktop.Notifications; member=Notify
+   string ""
+   uint32 0
+   string ""
+   string "New message in #general"
+   string "Example User: hello"
+   array [
+   ]
+   array [
+      dict entry(
+         string "desktop-entry"
+         variant             string "snap.exampleapp"
+      )
+      dict entry(
+         string "urgency"
+         variant             byte 1
+      )
+   ]
+   int32 -1
+method call time=1730900031.000000 sender=:1.12 -> destination=:1.30 serial=32 path=/org/freedesktop/Notifications; interface=org.freedesktop.Notifications; member=Notify
+   string ""
+   uint32 0
+   string ""
+   string "No hint at all"
+   string ""
+   array [
+   ]
+   array [
+   ]
+   int32 -1

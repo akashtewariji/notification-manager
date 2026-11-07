@@ -1,0 +1,20 @@
+method call time=1730900020.000000 sender=:1.90 -> destination=:1.30 serial=9 path=/org/freedesktop/Notifications; interface=org.freedesktop.Notifications; member=Notify
+   string "Firefox"
+   uint32 0
+   string ""
+   string "Reminder: "standup""
+   string "First line
+second line with "quotes"
+
+last line after a blank"
+   array [
+      string "default"
+      string "Activate"
+   ]
+   array [
+      dict entry(
+         string "urgency"
+         variant             byte 1
+      )
+   ]
+   int32 5000
