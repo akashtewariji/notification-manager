@@ -1,0 +1,32 @@
+  Slack / Firefox / ClickUp / alertd ...
+          │  Notify() call on the D-Bus session bus
+          ▼
+  ┌──────────────────┐
+  │  dbus-monitor    │  child process, prints each call as text
+  └────────┬─────────┘
+           │ stdout pipe (line by line)
+  ┌────────▼──────────────────── python app.py (one process) ──────────────┐
+  │                                                                        │
+  │  [listener thread]  listen_dbus()                                      │
+  │     parse text → app_name, summary, body                               │
+  │     resolve empty app_name via .desktop files (snap.slack → "Slack")   │
+  │     save_notification(): drop duplicates seen within 2s                │
+  │          │                         │                                   │
+  │          ▼                         ▼                                   │
+  │   INSERT into SQLite        broadcast() → one queue per open tab       │
+  │   notifications.db                 │                                   │
+  │          ▲                         │                                   │
+  │  [Flask/Werkzeug server, one thread per request]                       │
+  │     GET  /notifications ──── read all rows                             │
+  │     PATCH .../check, .../comment ── update a row                       │
+  │     GET  /stream ─────────── waits on its queue, sends each new item   │
+  │     /wallpaper ──────────── wallpaper.* file in the app folder         │
+  │     /server/restart|stop ── exit 42 / exit 0                           │
+  └──────────────────────────────┬─────────────────────────────────────────┘
+                                 │ HTTP on 0.0.0.0:5000
+                       ┌─────────▼──────────┐
+                       │ Browser page       │  index.html, plain JavaScript
+                       │ loads list, then   │  filter, sort, appearance
+                       │ live via /stream   │  saved in localStorage
+                       └────────────────────┘
+  systemd user service: keeps the process running and restarts it on failure
